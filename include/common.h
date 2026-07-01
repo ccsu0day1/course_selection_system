@@ -7,9 +7,15 @@
 #include <string.h>
 #include <locale.h>
 #include <time.h>
+#include <stdarg.h>
 
 #ifdef _WIN32
 #include <windows.h>
+#endif
+
+#ifdef _WIN32
+int print_utf8_printf(const char* format, ...);
+#define printf print_utf8_printf
 #endif
 
 #define MAX_ID_LEN 16

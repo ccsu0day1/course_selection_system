@@ -1,11 +1,11 @@
-﻿{
+{
     "version": "0.2.0",
     "configurations": [
         {
             "name": "Debug C Project",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/main.exe",
+            "program": "${workspaceFolder}/build/course_selection.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

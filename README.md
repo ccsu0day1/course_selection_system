@@ -3,7 +3,7 @@
 ## 编译运行
 
 - 使用 `make all` 编译
-- 运行 `./build/main.exe`
+- 运行 `./build/course_selection.exe`
 - 默认数据文件位于 `data/records.csv`
 
 ## 功能说明

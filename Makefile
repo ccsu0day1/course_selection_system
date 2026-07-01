@@ -1,7 +1,7 @@
 CC = gcc
-CFLAGS = -g -Wall -Iinclude -finput-charset=UTF-8 -fexec-charset=GBK
+CFLAGS = -g -Wall -Iinclude -finput-charset=UTF-8 -fexec-charset=UTF-8
 SRC = src/main.c src/app.c src/common.c src/storage.c src/query.c src/performance.c src/data_generator.c src/list.c src/hash.c
-TARGET = build/main.exe
+TARGET = build/course_selection.exe
 
 all: $(TARGET)
 

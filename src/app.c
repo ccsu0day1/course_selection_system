@@ -29,6 +29,10 @@ static void performance_menu(void);
 static void generate_data_menu(void);
 
 static void display_main_menu(void);
+static bool read_line(char* buffer, size_t size);
+static int read_int(const char* prompt, int default_value, bool allow_empty, bool* ok);
+static float read_float(const char* prompt, float default_value, bool allow_empty, bool* ok);
+static void read_string(const char* prompt, char* buffer, size_t size, const char* default_value);
 
 void run_app(void) {
     int choice;
@@ -40,8 +44,16 @@ void run_app(void) {
 
     while (1) {
         display_main_menu();
-        scanf("%d", &choice);
-        getchar();
+        char input_line[32];
+        if (!read_line(input_line, sizeof(input_line))) {
+            printf("读取输入失败，程序退出。\n");
+            break;
+        }
+        if (input_line[0] == '\0') {
+            printf("请输入有效选项。\n");
+            continue;
+        }
+        choice = atoi(input_line);
 
         switch (choice) {
             case 1: select_data_structure(); break;
@@ -67,6 +79,201 @@ void run_app(void) {
     }
 }
 
+static bool is_console_handle(HANDLE handle) {
+    if (handle == INVALID_HANDLE_VALUE || handle == NULL) return false;
+    DWORD mode;
+    return GetConsoleMode(handle, &mode) != 0;
+}
+
+static bool convert_raw_pipe_data(char* raw, size_t raw_size, char* utf8, size_t utf8_size) {
+    if (!raw || raw_size == 0 || !utf8 || utf8_size == 0) return false;
+    bool is_utf16le = false;
+    if (raw_size >= 2 && (unsigned char)raw[0] == 0xFF && (unsigned char)raw[1] == 0xFE) {
+        is_utf16le = true;
+        raw += 2;
+        raw_size -= 2;
+    } else {
+        int null_high = 0;
+        for (size_t i = 1; i + 1 < raw_size && i < 40; i += 2) {
+            if (raw[i] == '\0') null_high++;
+        }
+        if (null_high >= 4) {
+            is_utf16le = true;
+        }
+    }
+
+    if (is_utf16le) {
+        size_t wchar_count = raw_size / 2;
+        if (wchar_count == 0) return false;
+        wchar_t* wbuffer = (wchar_t*)malloc((wchar_count + 1) * sizeof(wchar_t));
+        if (!wbuffer) return false;
+        for (size_t i = 0; i < wchar_count; ++i) {
+            wbuffer[i] = (wchar_t)((unsigned char)raw[i * 2] | ((unsigned char)raw[i * 2 + 1] << 8));
+        }
+        wbuffer[wchar_count] = L'\0';
+        int written = WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, utf8, (int)utf8_size, NULL, NULL);
+        free(wbuffer);
+        return written > 0;
+    }
+
+    size_t copyLen = raw_size;
+    if (copyLen >= utf8_size) copyLen = utf8_size - 1;
+    memcpy(utf8, raw, copyLen);
+    utf8[copyLen] = '\0';
+    return true;
+}
+
+static bool read_pipe_line(HANDLE hin, char* buffer, size_t size) {
+    static char pipe_buffer[8192];
+    static size_t pipe_head = 0;
+    static size_t pipe_tail = 0;
+    static bool pipe_eof = false;
+    char temp[4096];
+    char utf8[8192];
+
+    if (pipe_head < pipe_tail) {
+        size_t len = pipe_tail - pipe_head;
+        char* newline = memchr(pipe_buffer + pipe_head, '\n', len);
+        if (newline) {
+            size_t line_len = (size_t)(newline - (pipe_buffer + pipe_head));
+            if (line_len > 0 && pipe_buffer[pipe_head + line_len - 1] == '\r') {
+                line_len--;
+            }
+            if (line_len >= size) line_len = size - 1;
+            memcpy(buffer, pipe_buffer + pipe_head, line_len);
+            buffer[line_len] = '\0';
+            pipe_head += (size_t)(newline - (pipe_buffer + pipe_head)) + 1;
+            return true;
+        }
+        if (pipe_eof) {
+            size_t line_len = len;
+            if (line_len > 0 && pipe_buffer[pipe_head + line_len - 1] == '\r') {
+                line_len--;
+            }
+            if (line_len >= size) line_len = size - 1;
+            memcpy(buffer, pipe_buffer + pipe_head, line_len);
+            buffer[line_len] = '\0';
+            pipe_head = pipe_tail = 0;
+            return line_len > 0;
+        }
+    }
+
+    DWORD bytesRead = 0;
+    if (!ReadFile(hin, temp, (DWORD)(sizeof(temp) - 1), &bytesRead, NULL)) {
+        return false;
+    }
+    if (bytesRead == 0) {
+        pipe_eof = true;
+        if (pipe_head < pipe_tail) {
+            return read_pipe_line(hin, buffer, size);
+        }
+        return false;
+    }
+
+    if (!convert_raw_pipe_data(temp, (size_t)bytesRead, utf8, sizeof(utf8))) {
+        return false;
+    }
+
+    size_t utf8_len = strlen(utf8);
+    if (utf8_len + pipe_tail > sizeof(pipe_buffer)) {
+        pipe_head = pipe_tail = 0;
+        if (utf8_len >= sizeof(pipe_buffer)) {
+            utf8_len = sizeof(pipe_buffer) - 1;
+        }
+    }
+    memcpy(pipe_buffer + pipe_tail, utf8, utf8_len);
+    pipe_tail += utf8_len;
+
+    if (pipe_head < pipe_tail) {
+        return read_pipe_line(hin, buffer, size);
+    }
+    return false;
+}
+
+static bool read_line(char* buffer, size_t size) {
+    if (!buffer || size == 0) return false;
+#ifdef _WIN32
+    HANDLE hin = GetStdHandle(STD_INPUT_HANDLE);
+    if (is_console_handle(hin)) {
+        wchar_t wbuffer[512];
+        DWORD read = 0;
+        if (!ReadConsoleW(hin, wbuffer, (DWORD)(sizeof(wbuffer) / sizeof(wchar_t) - 1), &read, NULL) || read == 0) {
+            return false;
+        }
+        while (read > 0 && (wbuffer[read - 1] == L'\r' || wbuffer[read - 1] == L'\n')) {
+            read--;
+        }
+        wbuffer[read] = L'\0';
+        int written = WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, buffer, (int)size, NULL, NULL);
+        return written > 0;
+    }
+    return read_pipe_line(hin, buffer, size);
+#else
+    if (!fgets(buffer, (int)size, stdin)) return false;
+    buffer[strcspn(buffer, "\r\n")] = '\0';
+    return true;
+#endif
+}
+
+static int read_int(const char* prompt, int default_value, bool allow_empty, bool* ok) {
+    char line[64];
+    if (prompt) {
+        printf("%s", prompt);
+        fflush(stdout);
+    }
+    if (!read_line(line, sizeof(line))) {
+        if (ok) *ok = false;
+        return default_value;
+    }
+    if (line[0] == '\0') {
+        if (allow_empty) {
+            if (ok) *ok = true;
+            return default_value;
+        }
+        if (ok) *ok = false;
+        return default_value;
+    }
+    if (ok) *ok = true;
+    return atoi(line);
+}
+
+static float read_float(const char* prompt, float default_value, bool allow_empty, bool* ok) {
+    char line[64];
+    if (prompt) {
+        printf("%s", prompt);
+        fflush(stdout);
+    }
+    if (!read_line(line, sizeof(line))) {
+        if (ok) *ok = false;
+        return default_value;
+    }
+    if (line[0] == '\0') {
+        if (allow_empty) {
+            if (ok) *ok = true;
+            return default_value;
+        }
+        if (ok) *ok = false;
+        return default_value;
+    }
+    if (ok) *ok = true;
+    return (float)atof(line);
+}
+
+static void read_string(const char* prompt, char* buffer, size_t size, const char* default_value) {
+    if (prompt) {
+        printf("%s", prompt);
+        fflush(stdout);
+    }
+    if (!read_line(buffer, size)) {
+        if (size > 0) buffer[0] = '\0';
+        return;
+    }
+    if (buffer[0] == '\0' && default_value) {
+        strncpy(buffer, default_value, size - 1);
+        buffer[size - 1] = '\0';
+    }
+}
+
 static void display_main_menu(void) {
     printf("\n========== 主菜单 ==========\n");
     printf("1. 选择数据结构（链表/哈希表）\n");
@@ -82,6 +289,7 @@ static void display_main_menu(void) {
     printf("11. 生成测试数据\n");
     printf("0. 退出\n");
     printf("请输入选项：");
+    fflush(stdout);
 }
 
 static void generate_data_menu(void) {
@@ -91,26 +299,29 @@ static void generate_data_menu(void) {
     printf("3. 生成 10000 条 (data/generated_10000.csv)\n");
     printf("4. 自定义数量\n");
     printf("请选择：");
-    int choice = 0;
-    scanf("%d", &choice);
-    getchar();
+    bool ok;
+    int choice = read_int(NULL, 0, false, &ok);
+    if (!ok) {
+        printf("读取输入失败。\n");
+        return;
+    }
 
     int count = 0;
     const char* path = NULL;
     char custom_path[256];
 
     switch (choice) {
-        case 1: count = 100; path = "data/generated_100.csv"; break;
-        case 2: count = 1000; path = "data/generated_1000.csv"; break;
-        case 3: count = 10000; path = "data/generated_10000.csv"; break;
+        case 1: count = 100; path = "generated_100.csv"; break;
+        case 2: count = 1000; path = "generated_1000.csv"; break;
+        case 3: count = 10000; path = "generated_10000.csv"; break;
         case 4:
-            printf("请输入生成数量：");
-            scanf("%d", &count);
-            getchar();
+            count = read_int("请输入生成数量：", 0, false, &ok);
+            if (!ok) {
+                printf("读取输入失败。\n");
+                return;
+            }
             printf("请输入输出文件路径（回车使用 data/generated_custom.csv）：");
-            fgets(custom_path, sizeof(custom_path), stdin);
-            custom_path[strcspn(custom_path, "\n")] = '\0';
-            if (strlen(custom_path) == 0) strcpy(custom_path, "data/generated_custom.csv");
+            read_string(NULL, custom_path, sizeof(custom_path), "generated_custom.csv");
             path = custom_path;
             break;
         default:
@@ -137,8 +348,12 @@ static void select_data_structure(void) {
     printf("1. 双向链表\n");
     printf("2. 哈希表\n");
     printf("请输入数字：");
-    scanf("%d", &choice);
-    getchar();
+    bool ok;
+    choice = read_int(NULL, 0, false, &ok);
+    if (!ok) {
+        printf("读取输入失败。\n");
+        return;
+    }
 
     if (g_container && g_iface) {
         g_iface->destroy(g_container);
@@ -172,10 +387,8 @@ static void load_data(void) {
         return;
     }
 
-    printf("输入文件名（直接回车使用默认 data/records.csv）：");
     char input[256];
-    fgets(input, sizeof(input), stdin);
-    input[strcspn(input, "\n")] = '\0';
+    read_string("输入文件名（直接回车使用默认 data/records.csv）：", input, sizeof(input), NULL);
 
     if (strlen(input) > 0) {
         strcpy(g_current_file, input);
@@ -220,26 +433,25 @@ static void insert_record(void) {
     }
 
     Record rec;
+    bool ok;
     memset(&rec, 0, sizeof(rec));
-    printf("请输入学号（12位）：");
-    scanf("%15s", rec.student_id);
-    printf("请输入姓名：");
-    scanf("%63s", rec.name);
-    printf("请输入学院：");
-    scanf("%63s", rec.college);
-    printf("请输入课程编号（8位）：");
-    scanf("%15s", rec.course_id);
-    printf("请输入课程名称：");
-    scanf("%63s", rec.course_name);
-    printf("请输入学分（如 3.5）：");
-    scanf("%f", &rec.credit);
-    printf("请输入选课学期（如 2024-02）：");
-    scanf("%15s", rec.semester);
-    printf("请输入选课日期（YYYY-MM-DD）：");
-    scanf("%15s", rec.date);
-    printf("请输入成绩（0-100）：");
-    scanf("%d", &rec.score);
-    getchar();
+    read_string("请输入学号（12位）：", rec.student_id, sizeof(rec.student_id), NULL);
+    read_string("请输入姓名：", rec.name, sizeof(rec.name), NULL);
+    read_string("请输入学院：", rec.college, sizeof(rec.college), NULL);
+    read_string("请输入课程编号（8位）：", rec.course_id, sizeof(rec.course_id), NULL);
+    read_string("请输入课程名称：", rec.course_name, sizeof(rec.course_name), NULL);
+    rec.credit = read_float("请输入学分（如 3.5）：", 0.0f, false, &ok);
+    if (!ok) {
+        printf("输入学分失败。\n");
+        return;
+    }
+    read_string("请输入选课学期（如 2024-02）：", rec.semester, sizeof(rec.semester), NULL);
+    read_string("请输入选课日期（YYYY-MM-DD）：", rec.date, sizeof(rec.date), NULL);
+    rec.score = read_int("请输入成绩（0-100）：", 0, false, &ok);
+    if (!ok) {
+        printf("输入成绩失败。\n");
+        return;
+    }
 
     if (g_iface->insert(g_container, &rec)) {
         printf("插入成功。\n");
@@ -256,11 +468,8 @@ static void delete_record(void) {
 
     char sid[MAX_ID_LEN];
     char cid[MAX_COURSE_ID_LEN];
-    printf("请输入学号：");
-    scanf("%15s", sid);
-    printf("请输入课程编号：");
-    scanf("%15s", cid);
-    getchar();
+    read_string("请输入学号：", sid, sizeof(sid), NULL);
+    read_string("请输入课程编号：", cid, sizeof(cid), NULL);
 
     if (g_iface->delete(g_container, sid, cid)) {
         printf("删除成功。\n");
@@ -277,11 +486,8 @@ static void find_record(void) {
 
     char sid[MAX_ID_LEN];
     char cid[MAX_COURSE_ID_LEN];
-    printf("请输入学号：");
-    scanf("%15s", sid);
-    printf("请输入课程编号：");
-    scanf("%15s", cid);
-    getchar();
+    read_string("请输入学号：", sid, sizeof(sid), NULL);
+    read_string("请输入课程编号：", cid, sizeof(cid), NULL);
 
     Record* rec = g_iface->find(g_container, sid, cid);
     if (rec) {
@@ -319,32 +525,25 @@ static void filter_and_sort(void) {
     }
 
     FilterCriteria criteria = {{0}};
+    bool ok;
     printf("\n===== 筛选条件（直接回车表示不限制） =====\n");
-    printf("学号（精确匹配）：");
-    fgets(criteria.student_id, sizeof(criteria.student_id), stdin);
-    criteria.student_id[strcspn(criteria.student_id, "\n")] = '\0';
+    read_string("学号（精确匹配）：", criteria.student_id, sizeof(criteria.student_id), NULL);
+    read_string("姓名（模糊匹配）：", criteria.name, sizeof(criteria.name), NULL);
+    read_string("课程名称（模糊匹配）：", criteria.course_name, sizeof(criteria.course_name), NULL);
+    read_string("学期（精确匹配，如 2024-02）：", criteria.semester, sizeof(criteria.semester), NULL);
 
-    printf("姓名（模糊匹配）：");
-    fgets(criteria.name, sizeof(criteria.name), stdin);
-    criteria.name[strcspn(criteria.name, "\n")] = '\0';
+    criteria.score_min = read_int("成绩下限（直接回车表示不限制）：", -1, true, &ok);
+    if (!ok) {
+        printf("读取输入失败。\n");
+        return;
+    }
+    criteria.score_max = read_int("成绩上限（直接回车表示不限制）：", -1, true, &ok);
+    if (!ok) {
+        printf("读取输入失败。\n");
+        return;
+    }
 
-    printf("课程名称（模糊匹配）：");
-    fgets(criteria.course_name, sizeof(criteria.course_name), stdin);
-    criteria.course_name[strcspn(criteria.course_name, "\n")] = '\0';
-
-    printf("学期（精确匹配，如 2024-02）：");
-    fgets(criteria.semester, sizeof(criteria.semester), stdin);
-    criteria.semester[strcspn(criteria.semester, "\n")] = '\0';
-
-    printf("成绩下限（-1 表示不限制）：");
-    scanf("%d", &criteria.score_min);
-    printf("成绩上限（-1 表示不限制）：");
-    scanf("%d", &criteria.score_max);
-    getchar();
-
-    printf("学院（精确匹配）：");
-    fgets(criteria.college, sizeof(criteria.college), stdin);
-    criteria.college[strcspn(criteria.college, "\n")] = '\0';
+    read_string("学院（精确匹配）：", criteria.college, sizeof(criteria.college), NULL);
 
     int count = 0;
     Record** results = filter_records(g_container, g_iface, &criteria, &count);
@@ -361,14 +560,13 @@ static void filter_and_sort(void) {
     int sort_count = 0;
 
     char answer[8];
-    printf("是否自定义排序字段？(y/n)：");
-    fgets(answer, sizeof(answer), stdin);
+    read_string("是否自定义排序字段？(y/n)：", answer, sizeof(answer), NULL);
     if (answer[0] == 'y' || answer[0] == 'Y') {
         for (int i = 0; i < 3; ++i) {
             char key[32];
-            printf("请输入第 %d 个排序字段（score/student_id/course_id/name/course_name/college/semester/credit，回车结束）：", i + 1);
-            fgets(key, sizeof(key), stdin);
-            key[strcspn(key, "\n")] = '\0';
+            char prompt[256];
+            snprintf(prompt, sizeof(prompt), "请输入第 %d 个排序字段（score/student_id/course_id/name/course_name/college/semester/credit，回车结束）：", i + 1);
+            read_string(prompt, key, sizeof(key), NULL);
             if (key[0] == '\0') break;
             if (!validate_sort_key(key)) {
                 printf("无效字段：%s，已忽略。\n", key);
@@ -376,9 +574,8 @@ static void filter_and_sort(void) {
             }
             sort_keys[sort_count] = strdup(key);
             char order[8];
-            printf("%s 排序方向 (asc/desc)：", key);
-            fgets(order, sizeof(order), stdin);
-            order[strcspn(order, "\n")] = '\0';
+            snprintf(prompt, sizeof(prompt), "%s 排序方向 (asc/desc)：", key);
+            read_string(prompt, order, sizeof(order), NULL);
             sort_orders[sort_count] = (strcmp(order, "desc") != 0);
             sort_count++;
         }
@@ -406,10 +603,12 @@ static void filter_and_sort(void) {
 
     char choice[10];
     printf("\n是否导出到文件？(y/n)：");
+    fflush(stdout);
     fgets(choice, sizeof(choice), stdin);
     if (choice[0] == 'y' || choice[0] == 'Y') {
         char fname[256];
         printf("请输入文件名（如 output.csv）：");
+        fflush(stdout);
         fgets(fname, sizeof(fname), stdin);
         fname[strcspn(fname, "\n")] = '\0';
         if (strlen(fname) > 0) {
@@ -460,11 +659,10 @@ static void delete_expired(void) {
     }
 
     printf("找到 %d 条过期记录（选课日期早于 2023-09-01），确认删除？(y/n)：", to_delete);
-    char confirm;
-    scanf("%c", &confirm);
-    getchar();
+    char confirm[8];
+    read_string(NULL, confirm, sizeof(confirm), NULL);
 
-    if (confirm == 'y' || confirm == 'Y') {
+    if (confirm[0] == 'y' || confirm[0] == 'Y') {
         int deleted = 0;
         for (int i = 0; i < total; ++i) {
             if (strcmp(all[i]->date, cutoff_date) < 0) {
@@ -495,9 +693,12 @@ static void statistics_menu(void) {
     printf("3. 各学院选课人数分布\n");
     printf("4. 按学期统计选课总人数与课程数\n");
     printf("5. 课程成绩分布统计\n");
-    printf("请输入选择：");
-    scanf("%d", &choice);
-    getchar();
+    bool ok;
+    choice = read_int(NULL, 0, false, &ok);
+    if (!ok) {
+        printf("读取输入失败。\n");
+        return;
+    }
 
     switch (choice) {
         case 1: stat_course_enrollment(g_container, g_iface, 50); break;

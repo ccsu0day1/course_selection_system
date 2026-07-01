@@ -46,12 +46,15 @@ static bool parse_csv_line(char* line, Record* record) {
  */
 int load_from_csv(DataContainer* container, const char* path, const DataInterface* iface) {
     if (!container || !iface || !path) return -1;
-    FILE* file = fopen(path, "r"); /**< 以文本方式读取 CSV */
+    FILE* file = fopen(path, "rb"); /**< 以二进制方式读取 CSV，支持 UTF-8 BOM 识别 */
     if (!file) return -1;
 
     char line[1024]; /**< 单行读取缓冲区 */
     int count = 0; /**< 已加载记录数量 */
     while (fgets(line, sizeof(line), file)) {
+        if (count == 0 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
+            memmove(line, line + 3, strlen(line + 3) + 1);
+        }
         if (line[0] == '\n' || line[0] == '\r' || line[0] == '\0') continue;
         Record record; /**< 单条记录临时存放 */
         memset(&record, 0, sizeof(record));
@@ -67,8 +70,10 @@ int load_from_csv(DataContainer* container, const char* path, const DataInterfac
  */
 int save_to_csv(const DataContainer* container, const char* path, const DataInterface* iface) {
     if (!container || !iface || !path) return -1;
-    FILE* file = fopen(path, "w"); /**< 以文本方式写入 CSV */
+    FILE* file = fopen(path, "wb"); /**< 以二进制方式写入 CSV，并写入 UTF-8 BOM */
     if (!file) return -1;
+    const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
+    fwrite(bom, 1, sizeof(bom), file);
 
     int total = 0; /**< 容器记录数 */
     Record** records = iface->get_all_records((DataContainer*)container, &total); /**< 获取所有记录副本 */
@@ -95,8 +100,10 @@ int save_to_csv(const DataContainer* container, const char* path, const DataInte
  */
 bool export_to_csv(Record** records, int count, const char* path) {
     if (!records || count <= 0 || !path) return false;
-    FILE* file = fopen(path, "w"); /**< 以文本方式导出 CSV */
+    FILE* file = fopen(path, "wb"); /**< 以二进制方式导出 CSV，并写入 UTF-8 BOM */
     if (!file) return false;
+    const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
+    fwrite(bom, 1, sizeof(bom), file);
 
     for (int i = 0; i < count; ++i) {
         fprintf(file, "%s,%s,%s,%s,%s,%.1f,%s,%s,%d\n",

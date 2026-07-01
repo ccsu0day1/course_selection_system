@@ -2,12 +2,15 @@
 #include "../include/common.h"
 #include <stdio.h>
 #include <time.h>
+#ifdef _WIN32
+#include <direct.h>
+#endif
 
 static const char* sample_first[] = {
-    "Li", "Wang", "Zhang", "Liu", "Chen", "Yang", "Zhao", "Huang", "Zhou", "Xu"
+    "赵", "钱", "孙", "李", "周", "吴", "郑", "王", "冯", "陈"
 };
 static const char* sample_last[] = {
-    "Wei", "Fang", "Hua", "Jun", "Lei", "Peng", "Qiang", "Ming", "Tao", "Na"
+    "伟", "芳", "华", "军", "磊", "鹏", "强", "敏", "涛", "娜"
 };
 static const char* colleges[] = {
     "计算机学院", "数学学院", "物理学院", "电子学院", "经济学院", "外语学院"
@@ -30,8 +33,36 @@ static void rand_date(char* buf, size_t bufsz) {
 
 bool generate_csv(int count, const char* path) {
     if (count <= 0 || !path) return false;
-    FILE* f = fopen(path, "w");
+
+    char resolved_path[512];
+    if (path[0] == '\0') return false;
+
+    if (strchr(path, '/') == NULL && strchr(path, '\\') == NULL) {
+        snprintf(resolved_path, sizeof(resolved_path), "data/%s", path);
+    } else {
+        snprintf(resolved_path, sizeof(resolved_path), "%s", path);
+    }
+
+    char directory[512];
+    snprintf(directory, sizeof(directory), "%s", resolved_path);
+    char* slash = strrchr(directory, '/');
+    if (!slash) slash = strrchr(directory, '\\');
+    if (slash) {
+        *slash = '\0';
+        if (directory[0] != '\0') {
+#ifdef _WIN32
+            _mkdir(directory);
+#else
+            mkdir(directory, 0777);
+#endif
+        }
+    }
+
+    FILE* f = fopen(resolved_path, "wb");
     if (!f) return false;
+
+    const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
+    fwrite(bom, 1, sizeof(bom), f);
 
     srand((unsigned int)time(NULL));
 
