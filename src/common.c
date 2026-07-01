@@ -14,14 +14,21 @@ static bool is_console_handle(HANDLE handle) {
 int print_utf8_printf(const char* format, ...) {
     va_list args;
     va_start(args, format);
-    int size = vsnprintf(NULL, 0, format, args);
-    va_end(args);
-    if (size < 0) return -1;
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int size = vsnprintf(NULL, 0, format, args_copy);
+    va_end(args_copy);
+    if (size < 0) {
+        va_end(args);
+        return -1;
+    }
 
     char* buffer = (char*)malloc((size_t)size + 1);
-    if (!buffer) return -1;
+    if (!buffer) {
+        va_end(args);
+        return -1;
+    }
 
-    va_start(args, format);
     vsnprintf(buffer, (size_t)size + 1, format, args);
     va_end(args);
 

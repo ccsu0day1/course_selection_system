@@ -4,6 +4,7 @@
  * @details 该文件封装主菜单、命令处理和高层业务函数，减少 main.c 的实现复杂度。
  */
 
+#include <ctype.h>
 #include "../include/common.h"
 #include "../include/storage.h"
 #include "../include/query.h"
@@ -79,140 +80,31 @@ void run_app(void) {
     }
 }
 
-static bool is_console_handle(HANDLE handle) {
-    if (handle == INVALID_HANDLE_VALUE || handle == NULL) return false;
-    DWORD mode;
-    return GetConsoleMode(handle, &mode) != 0;
-}
-
-static bool convert_raw_pipe_data(char* raw, size_t raw_size, char* utf8, size_t utf8_size) {
-    if (!raw || raw_size == 0 || !utf8 || utf8_size == 0) return false;
-    bool is_utf16le = false;
-    if (raw_size >= 2 && (unsigned char)raw[0] == 0xFF && (unsigned char)raw[1] == 0xFE) {
-        is_utf16le = true;
-        raw += 2;
-        raw_size -= 2;
-    } else {
-        int null_high = 0;
-        for (size_t i = 1; i + 1 < raw_size && i < 40; i += 2) {
-            if (raw[i] == '\0') null_high++;
-        }
-        if (null_high >= 4) {
-            is_utf16le = true;
-        }
+static void trim_whitespace(char* buffer) {
+    if (!buffer) return;
+    char* start = buffer;
+    while (*start && isspace((unsigned char)*start)) {
+        start++;
     }
-
-    if (is_utf16le) {
-        size_t wchar_count = raw_size / 2;
-        if (wchar_count == 0) return false;
-        wchar_t* wbuffer = (wchar_t*)malloc((wchar_count + 1) * sizeof(wchar_t));
-        if (!wbuffer) return false;
-        for (size_t i = 0; i < wchar_count; ++i) {
-            wbuffer[i] = (wchar_t)((unsigned char)raw[i * 2] | ((unsigned char)raw[i * 2 + 1] << 8));
-        }
-        wbuffer[wchar_count] = L'\0';
-        int written = WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, utf8, (int)utf8_size, NULL, NULL);
-        free(wbuffer);
-        return written > 0;
+    char* end = buffer + strlen(buffer);
+    while (end > start && isspace((unsigned char)*(end - 1))) {
+        end--;
     }
-
-    size_t copyLen = raw_size;
-    if (copyLen >= utf8_size) copyLen = utf8_size - 1;
-    memcpy(utf8, raw, copyLen);
-    utf8[copyLen] = '\0';
-    return true;
-}
-
-static bool read_pipe_line(HANDLE hin, char* buffer, size_t size) {
-    static char pipe_buffer[8192];
-    static size_t pipe_head = 0;
-    static size_t pipe_tail = 0;
-    static bool pipe_eof = false;
-    char temp[4096];
-    char utf8[8192];
-
-    if (pipe_head < pipe_tail) {
-        size_t len = pipe_tail - pipe_head;
-        char* newline = memchr(pipe_buffer + pipe_head, '\n', len);
-        if (newline) {
-            size_t line_len = (size_t)(newline - (pipe_buffer + pipe_head));
-            if (line_len > 0 && pipe_buffer[pipe_head + line_len - 1] == '\r') {
-                line_len--;
-            }
-            if (line_len >= size) line_len = size - 1;
-            memcpy(buffer, pipe_buffer + pipe_head, line_len);
-            buffer[line_len] = '\0';
-            pipe_head += (size_t)(newline - (pipe_buffer + pipe_head)) + 1;
-            return true;
-        }
-        if (pipe_eof) {
-            size_t line_len = len;
-            if (line_len > 0 && pipe_buffer[pipe_head + line_len - 1] == '\r') {
-                line_len--;
-            }
-            if (line_len >= size) line_len = size - 1;
-            memcpy(buffer, pipe_buffer + pipe_head, line_len);
-            buffer[line_len] = '\0';
-            pipe_head = pipe_tail = 0;
-            return line_len > 0;
-        }
-    }
-
-    DWORD bytesRead = 0;
-    if (!ReadFile(hin, temp, (DWORD)(sizeof(temp) - 1), &bytesRead, NULL)) {
-        return false;
-    }
-    if (bytesRead == 0) {
-        pipe_eof = true;
-        if (pipe_head < pipe_tail) {
-            return read_pipe_line(hin, buffer, size);
-        }
-        return false;
-    }
-
-    if (!convert_raw_pipe_data(temp, (size_t)bytesRead, utf8, sizeof(utf8))) {
-        return false;
-    }
-
-    size_t utf8_len = strlen(utf8);
-    if (utf8_len + pipe_tail > sizeof(pipe_buffer)) {
-        pipe_head = pipe_tail = 0;
-        if (utf8_len >= sizeof(pipe_buffer)) {
-            utf8_len = sizeof(pipe_buffer) - 1;
-        }
-    }
-    memcpy(pipe_buffer + pipe_tail, utf8, utf8_len);
-    pipe_tail += utf8_len;
-
-    if (pipe_head < pipe_tail) {
-        return read_pipe_line(hin, buffer, size);
-    }
-    return false;
+    size_t len = (size_t)(end - start);
+    memmove(buffer, start, len);
+    buffer[len] = '\0';
 }
 
 static bool read_line(char* buffer, size_t size) {
     if (!buffer || size == 0) return false;
-#ifdef _WIN32
-    HANDLE hin = GetStdHandle(STD_INPUT_HANDLE);
-    if (is_console_handle(hin)) {
-        wchar_t wbuffer[512];
-        DWORD read = 0;
-        if (!ReadConsoleW(hin, wbuffer, (DWORD)(sizeof(wbuffer) / sizeof(wchar_t) - 1), &read, NULL) || read == 0) {
-            return false;
-        }
-        while (read > 0 && (wbuffer[read - 1] == L'\r' || wbuffer[read - 1] == L'\n')) {
-            read--;
-        }
-        wbuffer[read] = L'\0';
-        int written = WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, buffer, (int)size, NULL, NULL);
-        return written > 0;
+
+    if (!fgets(buffer, (int)size, stdin)) {
+        return false;
     }
-    return read_pipe_line(hin, buffer, size);
-#else
-    if (!fgets(buffer, (int)size, stdin)) return false;
+
     buffer[strcspn(buffer, "\r\n")] = '\0';
+    trim_whitespace(buffer);
     return true;
-#endif
 }
 
 static int read_int(const char* prompt, int default_value, bool allow_empty, bool* ok) {
@@ -492,15 +384,15 @@ static void find_record(void) {
     Record* rec = g_iface->find(g_container, sid, cid);
     if (rec) {
         printf("\n========== 找到记录 ==========\n");
-        printf("学号：%s\n", rec->student_id);
-        printf("姓名：%s\n", rec->name);
-        printf("学院：%s\n", rec->college);
-        printf("课程编号：%s\n", rec->course_id);
-        printf("课程名称：%s\n", rec->course_name);
-        printf("学分：%.1f\n", rec->credit);
-        printf("学期：%s\n", rec->semester);
-        printf("日期：%s\n", rec->date);
-        printf("成绩：%d\n", rec->score);
+        printf("学号: %s\n", rec->student_id);
+        printf("姓名: %s\n", rec->name);
+        printf("学院: %s\n", rec->college);
+        printf("课程编号: %s\n", rec->course_id);
+        printf("课程名称: %s\n", rec->course_name);
+        printf("学分: %.1f\n", rec->credit);
+        printf("学期: %s\n", rec->semester);
+        printf("日期: %s\n", rec->date);
+        printf("成绩: %d\n", rec->score);
         printf("==============================\n");
         free(rec);
     } else {
