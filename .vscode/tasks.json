@@ -1,0 +1,50 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "cmd.exe",
+            "args": [
+                "/d",
+                "/c",
+                "gcc -g -Wall -I\"${workspaceFolder}/include\" \"${workspaceFolder}/src/main.c\" \"${workspaceFolder}/src/cli_interface.c\" \"${workspaceFolder}/src/file_io.c\" \"${workspaceFolder}/src/record_system.c\" \"${workspaceFolder}/src/data_structure.c\" \"${workspaceFolder}/src/performance_test.c\" -o \"${workspaceFolder}/build/main.exe\""
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "编译所有源文件并生成可执行文件"
+        },
+        {
+            "label": "build and run",
+            "type": "shell",
+            "command": "cmd.exe",
+            "args": [
+                "/d",
+                "/c",
+                "gcc -g -Wall -I\"${workspaceFolder}/include\" \"${workspaceFolder}/src/main.c\" \"${workspaceFolder}/src/cli_interface.c\" \"${workspaceFolder}/src/file_io.c\" \"${workspaceFolder}/src/record_system.c\" \"${workspaceFolder}/src/data_structure.c\" \"${workspaceFolder}/src/performance_test.c\" -o \"${workspaceFolder}/build/main.exe\" && \"${workspaceFolder}/build/main.exe\""
+            ],
+            "group": "none",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "编译并运行程序"
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "cmd.exe",
+            "args": [
+                "/d",
+                "/c",
+                "if exist \"${workspaceFolder}/build\\main.exe\" del /q \"${workspaceFolder}/build\\main.exe\""
+            ],
+            "group": "none",
+            "detail": "清理编译生成的文件"
+        }
+    ]
+}
