@@ -384,15 +384,15 @@ static void find_record(void) {
     Record* rec = g_iface->find(g_container, sid, cid);
     if (rec) {
         printf("\n========== 找到记录 ==========\n");
-        printf("学号: %s\n", rec->student_id);
-        printf("姓名: %s\n", rec->name);
-        printf("学院: %s\n", rec->college);
-        printf("课程编号: %s\n", rec->course_id);
-        printf("课程名称: %s\n", rec->course_name);
-        printf("学分: %.1f\n", rec->credit);
-        printf("学期: %s\n", rec->semester);
-        printf("日期: %s\n", rec->date);
-        printf("成绩: %d\n", rec->score);
+        printf("学号： %s\n", rec->student_id);
+        printf("姓名： %s\n", rec->name);
+        printf("学院： %s\n", rec->college);
+        printf("课程编号： %s\n", rec->course_id);
+        printf("课程名称： %s\n", rec->course_name);
+        printf("学分： %.1f\n", rec->credit);
+        printf("学期： %s\n", rec->semester);
+        printf("日期： %s\n", rec->date);
+        printf("成绩： %d\n", rec->score);
         printf("==============================\n");
         free(rec);
     } else {
