@@ -1,6 +1,7 @@
 #include "../include/performance.h"
 #include "../include/storage.h"
 #include "../include/query.h"
+#include "../include/data_generator.h"
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
@@ -103,12 +104,33 @@ static int safe_file_exists(const char* path) {
     return 1;
 }
 
+static int get_expected_count_for_path(const char* path) {
+    if (!path) return 0;
+    if (strstr(path, "100000") != NULL) return 100000;
+    if (strstr(path, "10000") != NULL) return 10000;
+    if (strstr(path, "1000") != NULL) return 1000;
+    if (strstr(path, "100") != NULL) return 100;
+    return 0;
+}
+
+static bool ensure_test_file(const char* path) {
+    if (safe_file_exists(path)) return true;
+
+    int expected_count = get_expected_count_for_path(path);
+    if (expected_count <= 0) {
+        printf("跳过不存在文件：%s\n", path);
+        return false;
+    }
+
+    printf("文件不存在，正在生成 %d 条测试数据到 %s...\n", expected_count, path);
+    return generate_csv(expected_count, path);
+}
+
 void run_performance_comparison(const char* files[]) {
     if (!files) return;
 
-    for (int i = 0; i < 3; ++i) {
-        if (!safe_file_exists(files[i])) {
-            printf("跳过不存在文件：%s\n", files[i]);
+    for (int i = 0; i < 4; ++i) {
+        if (!ensure_test_file(files[i])) {
             continue;
         }
 

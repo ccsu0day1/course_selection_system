@@ -155,7 +155,8 @@ int RunCli(RecordDatabase *db, const char *default_path) {
                     printf("1. 生成 100 条 (data/generated_100.csv)\n");
                     printf("2. 生成 1000 条 (data/generated_1000.csv)\n");
                     printf("3. 生成 10000 条 (data/generated_10000.csv)\n");
-                    printf("4. 自定义数量\n");
+                    printf("4. 生成 100000 条 (data/generated_100000.csv)\n");
+                    printf("5. 自定义数量\n");
                     printf("请选择：");
                     int choice = 0;
                     if (scanf("%d", &choice) != 1) { scanf("%*s"); break; }
@@ -167,7 +168,8 @@ int RunCli(RecordDatabase *db, const char *default_path) {
                         case 1: count = 100; path = "data/generated_100.csv"; break;
                         case 2: count = 1000; path = "data/generated_1000.csv"; break;
                         case 3: count = 10000; path = "data/generated_10000.csv"; break;
-                        case 4:
+                        case 4: count = 100000; path = "data/generated_100000.csv"; break;
+                        case 5:
                             printf("请输入生成数量：");
                             if (scanf("%d", &count) != 1) { scanf("%*s"); break; }
                             getchar();
