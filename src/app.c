@@ -168,7 +168,7 @@ static void read_string(const char* prompt, char* buffer, size_t size, const cha
 
 static void display_main_menu(void) {
     printf("\n========== 主菜单 ==========\n");
-    printf("1. 选择数据结构（链表/哈希表）\n");
+    printf("1. 选择数据结构（链表/哈希表/AVL树）\n");
     printf("2. 加载数据（CSV）\n");
     printf("3. 保存数据\n");
     printf("4. 插入记录\n");
@@ -241,6 +241,7 @@ static void select_data_structure(void) {
     printf("\n请选择数据结构：\n");
     printf("1. 双向链表\n");
     printf("2. 哈希表\n");
+    printf("3. AVL 树\n");
     printf("请输入数字：");
     bool ok;
     choice = read_int(NULL, 0, false, &ok);
@@ -261,6 +262,9 @@ static void select_data_structure(void) {
     } else if (choice == 2) {
         g_iface = get_hash_interface();
         printf("已选择哈希表。\n");
+    } else if (choice == 3) {
+        g_iface = get_avl_interface();
+        printf("已选择 AVL 树。\n");
     } else {
         printf("无效选择，请重新选择。\n");
         return;

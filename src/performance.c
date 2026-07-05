@@ -136,6 +136,7 @@ void run_performance_comparison(const char* files[]) {
 
         DataContainer* list_container = get_list_interface()->create();
         DataContainer* hash_container = get_hash_interface()->create();
+        DataContainer* avl_container = get_avl_interface()->create();
         if (!list_container || !hash_container) {
             printf("创建容器失败。\n");
             if (list_container) get_list_interface()->destroy(list_container);
@@ -143,20 +144,32 @@ void run_performance_comparison(const char* files[]) {
             return;
         }
 
+        if (!avl_container) {
+            printf("创建 AVL 容器失败。\n");
+            if (list_container) get_list_interface()->destroy(list_container);
+            if (hash_container) get_hash_interface()->destroy(hash_container);
+            return;
+        }
+
         double list_load = measure_load_time(files[i], list_container, get_list_interface());
         double hash_load = measure_load_time(files[i], hash_container, get_hash_interface());
+        double avl_load = measure_load_time(files[i], avl_container, get_avl_interface());
         double list_traverse = measure_traverse_time(list_container, get_list_interface());
         double hash_traverse = measure_traverse_time(hash_container, get_hash_interface());
+        double avl_traverse = measure_traverse_time(avl_container, get_avl_interface());
         double list_sort = measure_sort_time(list_container, get_list_interface());
         double hash_sort = measure_sort_time(hash_container, get_hash_interface());
+        double avl_sort = measure_sort_time(avl_container, get_avl_interface());
 
         int total = 0;
         Record** sample_records = get_list_interface()->get_all_records(list_container, &total);
         int sample_count = total > 20 ? 20 : total;
         double list_find = measure_find_time(list_container, get_list_interface(), sample_records, sample_count);
         double hash_find = measure_find_time(hash_container, get_hash_interface(), sample_records, sample_count);
+        double avl_find = measure_find_time(avl_container, get_avl_interface(), sample_records, sample_count);
         double list_delete = measure_delete_time(files[i], get_list_interface(), sample_records, sample_count);
         double hash_delete = measure_delete_time(files[i], get_hash_interface(), sample_records, sample_count);
+        double avl_delete = measure_delete_time(files[i], get_avl_interface(), sample_records, sample_count);
 
         print_separator(files[i]);
         printf("结构    操作       耗时(s)\n");
@@ -170,12 +183,18 @@ void run_performance_comparison(const char* files[]) {
         printf("哈希    排序       %.6f\n", hash_sort);
         printf("哈希    查找(%d)  %.6f\n", sample_count, hash_find);
         printf("哈希    删除(%d)  %.6f\n", sample_count, hash_delete);
+        printf("AVL     加载       %.6f\n", avl_load);
+        printf("AVL     遍历       %.6f\n", avl_traverse);
+        printf("AVL     排序       %.6f\n", avl_sort);
+        printf("AVL     查找(%d)  %.6f\n", sample_count, avl_find);
+        printf("AVL     删除(%d)  %.6f\n", sample_count, avl_delete);
         print_record_count(list_container, get_list_interface());
 
         for (int j = 0; j < total; ++j) free(sample_records[j]);
         free(sample_records);
         get_list_interface()->destroy(list_container);
         get_hash_interface()->destroy(hash_container);
+        get_avl_interface()->destroy(avl_container);
     }
 }
 

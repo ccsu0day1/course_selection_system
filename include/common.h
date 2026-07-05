@@ -96,6 +96,12 @@ const DataInterface* get_list_interface(void);
 const DataInterface* get_hash_interface(void);
 
 /**
+ * @brief 获取 AVL 树实现的数据接口。
+ * @return 指向 AVL 接口的只读指针。
+ */
+const DataInterface* get_avl_interface(void);
+
+/**
  * @brief 在 Windows 上设置控制台编码为 GBK。
  * @details 该函数主要用于在中文 Windows 系统中保证打印和输入汉字显示正常。
  */
